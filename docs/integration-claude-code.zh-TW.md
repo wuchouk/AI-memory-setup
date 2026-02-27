@@ -99,3 +99,36 @@ MCP 設定檔位置：`~/.claude/mcp_servers.json`
   }
 }
 ```
+
+## 選配：Claude Desktop 整合
+
+Claude Desktop 也支援 MCP，可以連接同一個 OpenMemory 實例。這讓你在 Chat、Cowork、Code 三種模式都能存取共享記憶。
+
+> **注意**：Claude Desktop 不支援直接使用 SSE URL。需要 `mcp-remote` 作為橋接。
+
+### 設定方式
+
+1. 確認 `npx` 可用（沒有的話：`npm install -g npx`）
+2. 編輯 `~/Library/Application Support/Claude/claude_desktop_config.json`（macOS），加入：
+
+```json
+{
+  "mcpServers": {
+    "openmemory": {
+      "command": "npx",
+      "args": [
+        "mcp-remote@latest",
+        "http://localhost:8765/mcp/claude-code/sse/your-username",
+        "--allow-http"
+      ]
+    }
+  }
+}
+```
+
+3. 重啟 Claude Desktop
+4. 在任何對話中測試：「查 OpenMemory 有沒有關於我的偏好」
+
+### 為什麼需要 `mcp-remote`？
+
+Claude Desktop 的 Custom Connector 要求 HTTPS，而 localhost 是 HTTP。`mcp-remote` 套件將 SSE 轉為 stdio，讓 Claude Desktop 能與本機 OpenMemory 伺服器溝通。

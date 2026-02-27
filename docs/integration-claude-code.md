@@ -99,3 +99,36 @@ Example entry:
   }
 }
 ```
+
+## Optional: Claude Desktop Integration
+
+Claude Desktop also supports MCP and can connect to the same OpenMemory instance. This gives you shared memory access in Chat, Cowork, and Code modes.
+
+> **Note**: Claude Desktop does not support SSE URLs directly. You need `mcp-remote` to bridge the connection.
+
+### Setup
+
+1. Ensure `npx` is available (`npm install -g npx` if needed)
+2. Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) and add:
+
+```json
+{
+  "mcpServers": {
+    "openmemory": {
+      "command": "npx",
+      "args": [
+        "mcp-remote@latest",
+        "http://localhost:8765/mcp/claude-code/sse/your-username",
+        "--allow-http"
+      ]
+    }
+  }
+}
+```
+
+3. Restart Claude Desktop
+4. Test in any conversation: "Search OpenMemory for my preferences"
+
+### Why `mcp-remote`?
+
+Claude Desktop's Custom Connectors require HTTPS, which localhost doesn't provide. The `mcp-remote` package bridges SSE→stdio, letting Claude Desktop communicate with the local OpenMemory server.
