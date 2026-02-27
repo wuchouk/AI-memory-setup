@@ -1,6 +1,6 @@
 # 疑難排解
 
-部署過程中遇到的 5 大問題——以及如何解決。
+部署過程中遇到的常見問題——以及如何解決。
 
 ## 1. Qdrant 維度不匹配（最常見）
 
@@ -72,9 +72,11 @@ curl ... -d '{"text": "專案使用 PostgreSQL 16 搭配 pgvector 做向量嵌�
 
 **症狀**: API 日誌中出現 `Failed to get categories: Error code: 401`
 
-**原因**: 記憶分類功能嘗試呼叫 OpenAI API（API key 設為 `not-needed`）。分類失敗不影響核心記憶讀寫。
+**原因**: 記憶分類功能嘗試呼叫 OpenAI API。如果你使用 Ollama 且 API key 設為 `not-needed`，分類會因 401 失敗。這不影響核心記憶讀寫。
 
-**解法**: 可忽略。分類是非關鍵功能，核心記憶操作不受影響。
+**解法**:
+- **OpenAI 使用者**：使用真正的 OpenAI API key 時此問題已解決——分類功能正常運作。
+- **Ollama 使用者**：可安全忽略。分類是非關鍵功能，核心記憶操作不受影響。你也可以註解掉 `api/app/models.py` 中的 event listener 來完全停用。
 
 ## 5. 寫入速度慢（10-30 秒）
 
@@ -88,6 +90,36 @@ curl ... -d '{"text": "專案使用 PostgreSQL 16 搭配 pgvector 做向量嵌�
 - Session 中的首次寫入必然較慢（~20-30 秒載入模型）
 - 後續寫入較快（~5-15 秒）
 - 若太慢，考慮使用較小的模型如 `qwen3:4b`（省 ~3GB RAM，推理更快）
+- **最快方案**：改用 OpenAI 作為 LLM provider（每次寫入約 5-7 秒，Ollama 則約 25 秒）。設定方式請參考[部署指南](deployment-guide.zh-TW.md)
+
+## 6. OpenAI 靜默返回 Null（max_tokens 太低）
+
+**症狀**: POST 到 `/api/v1/memories/` 返回 `null`，但 Docker 日誌顯示：
+```
+Invalid JSON response: Unterminated string
+```
+
+**原因**: `max_tokens` 設定太低（例如 500）。mem0 的事實擷取 prompt 會包含所有相關的現有記憶，用於去重和比對。隨著記憶庫成長，越來越多相關記憶被加入 prompt，LLM 的回應 JSON 可能超過 token 上限而被截斷——產生無效的 JSON，mem0 會靜默丟棄。
+
+**解法**: 將 `max_tokens` 設為至少 2000（建議 4096）。OpenAI 按實際輸出 token 計費，不是按設定的上限，所以提高上限不會增加費用。
+
+```bash
+curl -s -X PUT http://localhost:8765/api/v1/config/mem0/llm \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "provider": "openai",
+    "config": {
+      "model": "gpt-4.1-nano",
+      "temperature": 0,
+      "max_tokens": 4096
+    }
+  }'
+```
+
+更新後重啟 API container：
+```bash
+docker compose restart openmemory-mcp
+```
 
 ## 常見問答
 
@@ -137,6 +169,12 @@ docker compose up -d
 # 重新設定（必要！）
 ./scripts/configure-mem0.sh
 ```
+
+### Q: 可以用 OpenAI 代替 Ollama 嗎？
+
+可以——這其實是**建議方案**。OpenAI 寫入更快（約 5-7 秒 vs 約 25 秒）、省去本機 LLM 的 RAM 佔用，而且啟用了分類功能。一般個人使用的估計費用約 $0.17/月。
+
+設定方式請參考[部署指南](deployment-guide.zh-TW.md)，包含 LLM 和嵌入模型 provider 的完整設定說明。
 
 ### Q: MCP 連線一開始正常但後來斷線？
 

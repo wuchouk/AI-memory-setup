@@ -1,6 +1,6 @@
 # Troubleshooting
 
-The top 5 issues encountered during deployment — and how to fix them.
+The top issues encountered during deployment — and how to fix them.
 
 ## 1. Qdrant Dimension Mismatch (Most Common)
 
@@ -72,9 +72,11 @@ curl ... -d '{"text": "The project uses PostgreSQL 16 with pgvector for embeddin
 
 **Symptom**: API logs show `Failed to get categories: Error code: 401`
 
-**Cause**: The memory categorization feature attempts to call OpenAI's API (the API key is set to `not-needed`). Categorization failure does not affect core memory read/write.
+**Cause**: The memory categorization feature attempts to call OpenAI's API. If you're using Ollama with the API key set to `not-needed`, categorization will fail with a 401. This does not affect core memory read/write.
 
-**Fix**: Safe to ignore. Categorization is a non-critical feature. Core memory operations work fine without it.
+**Fix**:
+- **OpenAI users**: This is fixed when using a real OpenAI API key — categorization works normally.
+- **Ollama users**: Safe to ignore. Categorization is a non-critical feature. Core memory operations work fine without it. You can also disable it entirely by commenting out the event listeners in `api/app/models.py`.
 
 ## 5. Slow Write Speed (10-30 seconds)
 
@@ -82,12 +84,42 @@ curl ... -d '{"text": "The project uses PostgreSQL 16 with pgvector for embeddin
 
 **Cause**: Every write runs Ollama inference (fact extraction + embedding). The first write is slowest because Ollama needs to load the model into RAM.
 
-**This is expected behavior.** Ollama automatically unloads models after idle time. Subsequent writes are faster once the model is loaded.
+**This is expected behavior for Ollama.** Ollama automatically unloads models after idle time. Subsequent writes are faster once the model is loaded.
 
 **Mitigation**:
 - First write in a session will always be slow (~20-30s for model loading)
 - Subsequent writes are faster (~5-15s)
 - If too slow, consider a smaller model like `qwen3:4b` (saves ~3GB RAM, faster inference)
+- **Fastest option**: Switch to OpenAI for the LLM provider (~5-7s per write vs ~25s with Ollama). See the [deployment guide](deployment.md) for setup instructions
+
+## 6. Silent Null Returns with OpenAI (max_tokens Too Low)
+
+**Symptom**: POST to `/api/v1/memories/` returns `null`, but Docker logs show:
+```
+Invalid JSON response: Unterminated string
+```
+
+**Cause**: `max_tokens` is set too low (e.g., 500). mem0's fact extraction prompt includes all related existing memories for deduplication and comparison. As your memory store grows and more related memories are included in the prompt, the LLM's response JSON can exceed the token limit and get truncated mid-string — producing invalid JSON that mem0 silently discards.
+
+**Fix**: Set `max_tokens` to at least 2000 (4096 recommended). OpenAI charges per actual output token, not the configured maximum, so a higher limit has zero cost impact.
+
+```bash
+curl -s -X PUT http://localhost:8765/api/v1/config/mem0/llm \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "provider": "openai",
+    "config": {
+      "model": "gpt-4.1-nano",
+      "temperature": 0,
+      "max_tokens": 4096
+    }
+  }'
+```
+
+After updating, restart the API container:
+```bash
+docker compose restart openmemory-mcp
+```
 
 ## FAQ
 
@@ -137,6 +169,12 @@ docker compose up -d
 # Reconfigure (essential!)
 ./scripts/configure-mem0.sh
 ```
+
+### Q: Can I use OpenAI instead of Ollama?
+
+Yes — this is now the **recommended approach**. OpenAI provides faster writes (~5-7s vs ~25s), eliminates local RAM usage for LLM inference, and enables the categorization feature. Estimated cost is ~$0.17/month for typical personal use.
+
+See the [deployment guide](deployment.md) for full setup instructions, including how to configure the LLM and embedding providers.
 
 ### Q: The MCP connection works initially but drops after a while?
 

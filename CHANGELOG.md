@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-02-27
+
+### Added
+- OpenAI API as recommended LLM provider (gpt-4.1-nano + text-embedding-3-small)
+- Provider comparison table in deployment guide
+- New troubleshooting entry for max_tokens silent failure issue
+- Migration guide for switching from Ollama to OpenAI
+
+### Changed
+- Deployment guide now presents OpenAI as primary option, Ollama as alternative
+- Architecture docs updated to reflect dual-provider support
+- Config examples updated with OpenAI option
+- Troubleshooting FAQ updated with OpenAI recommendation
+
+### Fixed
+- Documented max_tokens silent failure issue (must be ≥2000 for OpenAI, 4096 recommended)
+- Auto-categorization now works with OpenAI (was disabled with Ollama due to hardcoded OpenAI dependency)
+
 ## [1.0.0] - 2026-02-26
 
 ### Added

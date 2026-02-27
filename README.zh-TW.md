@@ -19,8 +19,8 @@
 │  Claude Code     │──── MCP (SSE) ───▶│                      │
 └─────────────────┘                    │   OpenMemory API     │──▶ Qdrant（向量資料庫）
                                        │   (FastAPI)          │
-┌─────────────────┐                    │                      │──▶ Ollama（本機 LLM）
-│  AI 聊天機器人    │──── REST API ────▶│                      │
+┌─────────────────┐                    │                      │──▶ LLM Provider
+│  AI 聊天機器人    │──── REST API ────▶│                      │    （OpenAI 或 Ollama）
 └─────────────────┘                    └──────────────────────┘
 ```
 
@@ -29,8 +29,8 @@
 - **共享上下文**：偏好只需設定一次，所有工具都記得
 - **語意搜尋**：用語意而非關鍵字找到相關記憶
 - **自動事實擷取**：mem0 從對話中提煉原子事實
-- **完全隱私**：所有東西都在本機執行——Ollama LLM、Qdrant 向量、資料不離開你的電腦
-- **零 API 費用**：不需要 OpenAI key（使用本機 Ollama 模型）
+- **隱私可選**：使用 Ollama 完全本機執行（資料不離開你的電腦），或使用 OpenAI API 獲得更快的回應（約 $0.17/月）
+- **低費用**：Ollama 完全免費；OpenAI API 約 $0.17/月
 - **重啟自恢復**：Docker + brew services 自動啟動
 
 ### 解決了什麼問題
@@ -49,27 +49,27 @@
 - macOS Apple Silicon（M1/M2/M3/M4）
 - Docker Desktop
 - Homebrew
-- 16GB+ RAM（建議 24GB）
+- OpenAI API key（建議）或 16GB+ RAM 用於本機 Ollama
 
-### 1. 安裝 Ollama + 模型
-
-```bash
-./scripts/setup-ollama.sh
-```
-
-### 2. 部署 Docker 堆疊
+### 1. 部署 Docker 堆疊
 
 ```bash
 cd ~
 git clone https://github.com/mem0ai/mem0.git
 cd mem0/openmemory
 
-# 建立 .env
+# 建立 .env（方案 A：OpenAI——建議）
 cat > api/.env << 'EOF'
 USER=your-username
-OPENAI_API_KEY=not-needed
-OLLAMA_HOST=http://host.docker.internal:11434
+OPENAI_API_KEY=sk-proj-your-key-here
 EOF
+
+# 或使用 Ollama（方案 B——本機、免費）：
+# cat > api/.env << 'EOF'
+# USER=your-username
+# OPENAI_API_KEY=not-needed
+# OLLAMA_HOST=http://host.docker.internal:11434
+# EOF
 
 # 自訂 docker-compose.yml（參考 config/docker-compose.yml）
 # Build 和啟動
@@ -79,13 +79,15 @@ NEXT_PUBLIC_API_URL=http://localhost:8765 \
 docker compose up -d
 ```
 
-### 3. 設定本機 Ollama
+### 2. 設定 mem0
 
 ```bash
 ./scripts/configure-mem0.sh
 ```
 
-### 4. 連接你的 AI 工具
+> 若使用 Ollama，請先執行 `./scripts/setup-ollama.sh` 安裝模型。
+
+### 3. 連接你的 AI 工具
 
 **Claude Code (MCP)**:
 ```bash
@@ -100,7 +102,7 @@ curl -s -X POST http://localhost:8765/api/v1/memories/ \
   -d '{"text": "要記住的內容", "user_id": "your-username", "agent_id": "my-tool"}'
 ```
 
-### 5. 驗證
+### 4. 驗證
 
 ```bash
 USER_ID=your-username ./scripts/test-qa.sh all
@@ -112,7 +114,7 @@ USER_ID=your-username ./scripts/test-qa.sh all
 |------|------|
 | [架構說明](docs/architecture.zh-TW.md) | 系統設計、元件角色、資料流 |
 | [部署指南](docs/deployment-guide.zh-TW.md) | 完整的逐步部署流程 |
-| [疑難排解](docs/troubleshooting.zh-TW.md) | 5 大問題 + FAQ |
+| [疑難排解](docs/troubleshooting.zh-TW.md) | 常見問題 + FAQ |
 | [Claude Code 整合](docs/integration-claude-code.zh-TW.md) | Claude Code 的 MCP 設定 |
 | [REST API 整合](docs/integration-openclaw.zh-TW.md) | 其他工具的 REST 存取 |
 | [QA 測試結果](docs/qa-results.zh-TW.md) | 6 層級測試套件 |
@@ -136,8 +138,8 @@ USER_ID=your-username ./scripts/test-qa.sh all
 |------|------|------|
 | 記憶引擎 | [mem0 / OpenMemory](https://github.com/mem0ai/mem0) | v1.0.4+ |
 | 向量資料庫 | [Qdrant](https://qdrant.tech/) | v1.17.0 |
-| LLM（事實擷取） | [Ollama](https://ollama.ai/) + qwen3:8b | 0.17.0 |
-| 嵌入模型 | nomic-embed-text | 768 維度 |
+| LLM（事實擷取） | [OpenAI API](https://platform.openai.com/)（gpt-4.1-nano）或 [Ollama](https://ollama.ai/)（qwen3:8b） | — |
+| 嵌入模型 | OpenAI text-embedding-3-small 或 Ollama nomic-embed-text | — |
 | 容器執行環境 | Docker Desktop | 4.62.0 |
 | API 框架 | FastAPI | >=0.68.0 |
 

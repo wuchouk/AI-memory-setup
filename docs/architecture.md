@@ -27,7 +27,7 @@ This creates real problems:
 - One source of truth for stable facts (preferences, decisions, configs)
 - Semantic vector search — find relevant memories by meaning, not just keywords
 - Automatic fact extraction — mem0 distills conversations into atomic facts
-- Fully local — Ollama LLM on your machine, zero cloud API costs, full privacy
+- Flexible LLM backend — use **OpenAI API** (recommended, ~$0.17/month, faster and more reliable) or **local Ollama** (free, fully private, works offline)
 
 ## Architecture Diagram
 
@@ -37,9 +37,9 @@ This creates real problems:
 │  (MCP client)    │                    │   OpenMemory API     │──▶ Qdrant (vectors)
 └─────────────────┘                    │   (FastAPI :8765)    │──▶ SQLite (metadata)
                                        │                      │
-┌─────────────────┐     REST API       │                      │──▶ Ollama (LLM + Embed)
-│  AI Assistant    │───────────────────▶│                      │     (localhost:11434)
-│  (REST client)   │  curl localhost    └──────────────────────┘
+┌─────────────────┐     REST API       │                      │──▶ LLM Provider
+│  AI Assistant    │───────────────────▶│                      │     (OpenAI API or
+│  (REST client)   │  curl localhost    └──────────────────────┘      local Ollama)
 └─────────────────┘
                                        ┌──────────────────────┐
                                        │   Dashboard UI       │
@@ -51,30 +51,34 @@ This creates real problems:
 
 ### OpenMemory API (FastAPI)
 
-The central hub. Receives memory read/write requests, delegates to Ollama for fact extraction and embedding, stores results in Qdrant.
+The central hub. Receives memory read/write requests, delegates to the configured LLM provider for fact extraction and embedding, stores results in Qdrant.
 
 - **Port**: 8765
 - **Protocols**: MCP (SSE) for Claude Code, REST for other tools
 - **Key endpoints**: `/api/v1/memories/`, `/api/v1/config/`, `/mcp/claude-code/sse/{user_id}`
 
-### Ollama (Local LLM)
+### LLM Provider
 
-Runs two models entirely on your machine:
+OpenMemory uses an LLM for fact extraction and an embedding model for vector search. You can choose between two providers:
 
-| Model | Role | Size | Why this model |
-|-------|------|------|----------------|
-| qwen3:8b | Fact extraction | ~5.2GB | Strong multilingual understanding (CJK + English) |
-| nomic-embed-text | Vector embeddings | ~274MB | 768-dim vectors, open-source, quality close to OpenAI |
+| Provider | LLM Model | Embedding Model | Dims | Speed | Cost | Chinese accuracy |
+|----------|-----------|-----------------|------|-------|------|------------------|
+| **OpenAI (recommended)** | gpt-4.1-nano | text-embedding-3-small | 1536 | ~5-7s | ~$0.17/mo | Excellent |
+| Ollama (local) | qwen3:8b | nomic-embed-text | 768 | ~25s | Free | Inconsistent |
 
-**Why local?** Zero API costs, no data leaves your machine, works offline.
+**Why OpenAI is recommended:** Faster writes (~5-7s vs ~25s), significantly better Chinese/CJK fact extraction accuracy, and negligible cost at typical personal usage volumes. Your memory text still stays in your local Qdrant database — only the extraction and embedding API calls go to OpenAI.
+
+**Why you might still choose Ollama:** Zero cloud dependency, no data leaves your machine at all, works fully offline, and no API key required.
 
 ### Qdrant (Vector Database)
 
 Stores memory embeddings for semantic search. When you search for "my preferred code style", it finds relevant memories even if they don't contain those exact words.
 
 - **Port**: 6333
-- **Dimensions**: 768 (must match nomic-embed-text)
+- **Dimensions**: 1536 (OpenAI text-embedding-3-small) or 768 (Ollama nomic-embed-text) — must match your chosen embedding model
 - **Storage**: Docker volume (`mem0_storage`)
+
+> **Important**: If you switch providers, you must delete the existing Qdrant collection and re-index, because the vector dimensions differ.
 
 ### Dashboard UI (Next.js)
 
@@ -88,8 +92,8 @@ Visual interface to browse, search, and manage memories.
 
 ```
 User/AI tool → POST /api/v1/memories/
-  → mem0 engine → Ollama (extract atomic facts from text)
-  → Ollama (generate embedding vector)
+  → mem0 engine → LLM Provider (extract atomic facts from text)
+  → LLM Provider (generate embedding vector)
   → Qdrant (store vector + metadata)
   → Return extracted fact or null (if no new facts found)
 ```
@@ -125,6 +129,19 @@ Docker's `environment: - USER` inherits from the host's `$USER`, which may diffe
 
 ## RAM Budget
 
+### With OpenAI API (recommended)
+
+| Component | RAM Usage |
+|-----------|-----------|
+| macOS system | ~4GB |
+| Docker (FastAPI + Qdrant) | ~2-3GB |
+| Other applications | ~5-7GB |
+| **Total** | **~6-8GB** (Ollama not needed) |
+
+No local LLM required — fact extraction and embedding are handled by OpenAI's API. This frees up significant RAM for other applications.
+
+### With Ollama (local)
+
 | Component | RAM Usage |
 |-----------|-----------|
 | macOS system | ~4GB |
@@ -140,4 +157,4 @@ Docker's `environment: - USER` inherits from the host's `$USER`, which may diffe
 
 - **Multi-machine access**: Use Tailscale or similar VPN to access from other devices
 - **Backup strategy**: Export Qdrant snapshots periodically
-- **Model upgrades**: Swap qwen3:8b for newer models as they become available
+- **Model upgrades**: Swap models for newer ones as they become available

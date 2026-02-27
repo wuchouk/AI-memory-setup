@@ -19,8 +19,8 @@ It deploys [OpenMemory (mem0)](https://github.com/mem0ai/mem0) as a **unified me
 │  Claude Code     │──── MCP (SSE) ───▶│                      │
 └─────────────────┘                    │   OpenMemory API     │──▶ Qdrant (vector DB)
                                        │   (FastAPI)          │
-┌─────────────────┐                    │                      │──▶ Ollama (local LLM)
-│  AI Chatbot      │──── REST API ────▶│                      │
+┌─────────────────┐                    │                      │──▶ LLM Provider
+│  AI Chatbot      │──── REST API ────▶│                      │    (OpenAI or Ollama)
 └─────────────────┘                    └──────────────────────┘
 ```
 
@@ -29,8 +29,8 @@ It deploys [OpenMemory (mem0)](https://github.com/mem0ai/mem0) as a **unified me
 - **Shared context**: Write a preference once, all tools remember it
 - **Semantic search**: Find memories by meaning, not just keywords
 - **Automatic fact extraction**: mem0 distills conversations into atomic facts
-- **Full privacy**: Everything runs locally — Ollama LLM, Qdrant vectors, no data leaves your machine
-- **Zero API costs**: No OpenAI key needed (uses local Ollama models)
+- **Privacy options**: Run fully local with Ollama (no data leaves your machine), or use OpenAI API for faster responses (~$0.17/month)
+- **Low cost**: Free with Ollama; ~$0.17/month with OpenAI API
 - **Survives reboots**: Auto-start via Docker + brew services
 
 ### What problems it solves
@@ -49,27 +49,27 @@ It deploys [OpenMemory (mem0)](https://github.com/mem0ai/mem0) as a **unified me
 - macOS with Apple Silicon (M1/M2/M3/M4)
 - Docker Desktop
 - Homebrew
-- 16GB+ RAM (24GB recommended)
+- OpenAI API key (recommended) or 16GB+ RAM for local Ollama
 
-### 1. Install Ollama + Models
-
-```bash
-./scripts/setup-ollama.sh
-```
-
-### 2. Deploy Docker Stack
+### 1. Deploy Docker Stack
 
 ```bash
 cd ~
 git clone https://github.com/mem0ai/mem0.git
 cd mem0/openmemory
 
-# Create .env
+# Create .env (Option A: OpenAI — recommended)
 cat > api/.env << 'EOF'
 USER=your-username
-OPENAI_API_KEY=not-needed
-OLLAMA_HOST=http://host.docker.internal:11434
+OPENAI_API_KEY=sk-proj-your-key-here
 EOF
+
+# Or for Ollama (Option B — local, free):
+# cat > api/.env << 'EOF'
+# USER=your-username
+# OPENAI_API_KEY=not-needed
+# OLLAMA_HOST=http://host.docker.internal:11434
+# EOF
 
 # Customize docker-compose.yml (see config/docker-compose.yml for reference)
 # Build and start
@@ -79,13 +79,15 @@ NEXT_PUBLIC_API_URL=http://localhost:8765 \
 docker compose up -d
 ```
 
-### 3. Configure for Local Ollama
+### 2. Configure mem0
 
 ```bash
 ./scripts/configure-mem0.sh
 ```
 
-### 4. Connect Your AI Tools
+> If using Ollama, first run `./scripts/setup-ollama.sh` to install models.
+
+### 3. Connect Your AI Tools
 
 **Claude Code (MCP)**:
 ```bash
@@ -100,7 +102,7 @@ curl -s -X POST http://localhost:8765/api/v1/memories/ \
   -d '{"text": "Content to remember", "user_id": "your-username", "agent_id": "my-tool"}'
 ```
 
-### 5. Verify
+### 4. Verify
 
 ```bash
 USER_ID=your-username ./scripts/test-qa.sh all
@@ -136,8 +138,8 @@ All documents are available in [English](docs/) and [繁體中文](docs/).
 |-----------|------|---------|
 | Memory Engine | [mem0 / OpenMemory](https://github.com/mem0ai/mem0) | v1.0.4+ |
 | Vector Database | [Qdrant](https://qdrant.tech/) | v1.17.0 |
-| LLM (fact extraction) | [Ollama](https://ollama.ai/) + qwen3:8b | 0.17.0 |
-| Embeddings | nomic-embed-text | 768 dims |
+| LLM (fact extraction) | [OpenAI API](https://platform.openai.com/) (gpt-4.1-nano) or [Ollama](https://ollama.ai/) (qwen3:8b) | — |
+| Embeddings | OpenAI text-embedding-3-small or Ollama nomic-embed-text | — |
 | Container Runtime | Docker Desktop | 4.62.0 |
 | API Framework | FastAPI | >=0.68.0 |
 

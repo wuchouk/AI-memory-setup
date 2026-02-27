@@ -1,10 +1,10 @@
-# OpenMemory Docker Compose - Customized for local Ollama deployment
+# OpenMemory Docker Compose - Customized for local deployment
 # Based on: https://github.com/mem0ai/mem0/tree/main/openmemory
 #
 # Key modifications from upstream:
 # 1. restart: always        — auto-recovery on reboot / crash
 # 2. USER=your-username     — hardcoded (not from host $USER)
-# 3. OLLAMA_HOST            — uses host.docker.internal for Docker-to-host comms
+# 3. OLLAMA_HOST            — uses host.docker.internal for Docker-to-host comms (Ollama only)
 # 4. UI port 3080           — avoids conflict with common dev servers on 3000
 
 services:
@@ -25,7 +25,7 @@ services:
     environment:
       - USER=your-username           # [CUSTOM] hardcoded — do NOT use '- USER' (inherits host $USER)
       - API_KEY
-      - OLLAMA_HOST=http://host.docker.internal:11434  # [CUSTOM] Docker → host Ollama
+      # - OLLAMA_HOST=http://host.docker.internal:11434  # [CUSTOM] Only needed for Ollama users (not needed for OpenAI)
     env_file:
       - api/.env
     depends_on:

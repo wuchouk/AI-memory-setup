@@ -27,7 +27,7 @@
 - 穩定事實（偏好、決策、配置）的單一真相來源
 - 語意向量搜尋——用語意而非關鍵字找到相關記憶
 - 自動事實擷取——mem0 從對話中提煉原子事實
-- 完全本機——Ollama LLM 在你的機器上執行，零雲端 API 費用，完全隱私
+- 彈性 LLM 後端——使用 **OpenAI API**（建議，約 $0.17/月，更快更可靠）或**本機 Ollama**（免費，完全隱私，可離線使用）
 
 ## 架構圖
 
@@ -37,9 +37,9 @@
 │  (MCP client)    │                    │   OpenMemory API     │──▶ Qdrant（向量）
 └─────────────────┘                    │   (FastAPI :8765)    │──▶ SQLite（metadata）
                                        │                      │
-┌─────────────────┐     REST API       │                      │──▶ Ollama (LLM + Embed)
-│  AI 助手         │───────────────────▶│                      │     (localhost:11434)
-│  (REST client)   │  curl localhost    └──────────────────────┘
+┌─────────────────┐     REST API       │                      │──▶ LLM Provider
+│  AI 助手         │───────────────────▶│                      │    （OpenAI API 或
+│  (REST client)   │  curl localhost    └──────────────────────┘      本機 Ollama）
 └─────────────────┘
                                        ┌──────────────────────┐
                                        │   Dashboard UI       │
@@ -51,30 +51,34 @@
 
 ### OpenMemory API (FastAPI)
 
-中央樞紐。接收記憶讀寫請求，委派 Ollama 進行事實擷取和嵌入，將結果儲存到 Qdrant。
+中央樞紐。接收記憶讀寫請求，委派設定的 LLM provider 進行事實擷取和嵌入，將結果儲存到 Qdrant。
 
 - **Port**: 8765
 - **協定**: MCP (SSE) 給 Claude Code，REST 給其他工具
 - **主要端點**: `/api/v1/memories/`、`/api/v1/config/`、`/mcp/claude-code/sse/{user_id}`
 
-### Ollama（本機 LLM）
+### LLM Provider
 
-在你的機器上執行兩個模型：
+OpenMemory 使用 LLM 進行事實擷取，嵌入模型進行向量搜尋。你可以選擇兩種 provider：
 
-| 模型 | 角色 | 大小 | 選擇原因 |
-|------|------|------|----------|
-| qwen3:8b | 事實擷取 | ~5.2GB | 中英文夾雜理解能力強 |
-| nomic-embed-text | 向量嵌入 | ~274MB | 768 維度、開源、品質接近 OpenAI |
+| Provider | LLM 模型 | 嵌入模型 | 維度 | 速度 | 費用 | 中文準確度 |
+|----------|----------|---------|------|------|------|-----------|
+| **OpenAI（建議）** | gpt-4.1-nano | text-embedding-3-small | 1536 | ~5-7 秒 | ~$0.17/月 | 優秀 |
+| Ollama（本機） | qwen3:8b | nomic-embed-text | 768 | ~25 秒 | 免費 | 不穩定 |
 
-**為什麼本機？** 零 API 費用、資料不離開你的電腦、離線也能用。
+**為什麼建議 OpenAI？** 寫入更快（約 5-7 秒 vs 約 25 秒）、中文/CJK 事實擷取準確度明顯更好，而且在一般個人使用量下費用微乎其微。你的記憶文字仍儲存在本機 Qdrant 資料庫——只有擷取和嵌入的 API 呼叫會送到 OpenAI。
+
+**為什麼可能仍選擇 Ollama？** 零雲端依賴、資料完全不離開你的電腦、可完全離線使用、不需要 API key。
 
 ### Qdrant（向量資料庫）
 
 儲存記憶的嵌入向量，用於語意搜尋。當你搜尋「我的程式風格偏好」，即使記憶中沒有這些確切的字，也能找到相關內容。
 
 - **Port**: 6333
-- **維度**: 768（必須與 nomic-embed-text 一致）
+- **維度**: 1536（OpenAI text-embedding-3-small）或 768（Ollama nomic-embed-text）——必須與你選擇的嵌入模型一致
 - **儲存**: Docker volume (`mem0_storage`)
+
+> **重要**：如果切換 provider，必須刪除現有 Qdrant collection 並重新索引，因為向量維度不同。
 
 ### Dashboard UI (Next.js)
 
@@ -88,8 +92,8 @@
 
 ```
 使用者/AI 工具 → POST /api/v1/memories/
-  → mem0 引擎 → Ollama（從文字擷取原子事實）
-  → Ollama（生成嵌入向量）
+  → mem0 引擎 → LLM Provider（從文字擷取原子事實）
+  → LLM Provider（生成嵌入向量）
   → Qdrant（儲存向量 + metadata）
   → 回傳擷取的事實或 null（若無新事實）
 ```
@@ -125,6 +129,19 @@ Docker 的 `environment: - USER` 會繼承主機的 `$USER`，可能跟你的 Op
 
 ## RAM 預算
 
+### 使用 OpenAI API（建議）
+
+| 元件 | RAM 使用量 |
+|------|-----------|
+| macOS 系統 | ~4GB |
+| Docker (FastAPI + Qdrant) | ~2-3GB |
+| 其他應用 | ~5-7GB |
+| **總計** | **~6-8GB**（不需要 Ollama） |
+
+不需要本機 LLM——事實擷取和嵌入由 OpenAI API 處理。這釋放了大量 RAM 給其他應用程式。
+
+### 使用 Ollama（本機）
+
 | 元件 | RAM 使用量 |
 |------|-----------|
 | macOS 系統 | ~4GB |
@@ -140,4 +157,4 @@ Docker 的 `environment: - USER` 會繼承主機的 `$USER`，可能跟你的 Op
 
 - **多機存取**：使用 Tailscale 或類似 VPN 從其他裝置連入
 - **備份策略**：定期匯出 Qdrant 快照
-- **模型升級**：新模型推出時替換 qwen3:8b
+- **模型升級**：新模型推出時替換為更好的選擇

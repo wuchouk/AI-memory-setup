@@ -1,17 +1,36 @@
 # 部署指南
 
-> 在 macOS Apple Silicon 上部署 OpenMemory (mem0) 的完整步驟，
-> 使用 Ollama 進行本機 LLM 推理，Docker 執行服務堆疊。
+> 在 macOS Apple Silicon 上部署 OpenMemory (mem0) 的完整步驟。
+> 兩種 LLM 供應商選項：**OpenAI API**（推薦）或**本機 Ollama**。
+
+## 選擇你的 LLM 供應商
+
+| | OpenAI API（推薦） | Ollama（本機） |
+|---|---|---|
+| **費用** | 約 $0.17/月 | 免費 |
+| **寫入速度** | ~5-7 秒 | ~25 秒 |
+| **中文準確度** | 優秀 | 不穩定（混合格式約 50% 失敗） |
+| **RAM 用量** | 0（雲端） | ~7GB |
+| **隱私** | 資料傳送至 OpenAI | 完全本機 |
+| **自動分類** | 有 | 無（硬編碼 OpenAI 依賴） |
+
+> **為什麼推薦 OpenAI**：Ollama 的本機模型（測試過 qwen3:8b）在處理中英文夾雜的事實擷取時表現不穩，結構化格式如 `[開發教訓]` 的失敗率約 50%。OpenAI gpt-4.1-nano 更快、更可靠，每月費用不到 $0.20。詳見 [Issue #1](https://github.com/wuchouk/AI-memory-setup/issues/1)。
 
 ## 前置條件
 
 - macOS Apple Silicon（M1/M2/M3/M4）
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) 已安裝
 - [Homebrew](https://brew.sh) 已安裝
-- 至少 16GB RAM（建議 24GB+）
-- 約 10GB 可用磁碟空間（模型 + Docker 映像）
+- **OpenAI 路線**：一組 OpenAI API key
+- **Ollama 路線**：至少 16GB RAM（建議 24GB+），約 10GB 可用磁碟空間
 
-## Phase 1: 安裝 Ollama + 模型
+## Phase 1: LLM 設定
+
+### 選項 A：OpenAI API（推薦）
+
+不需要安裝本機模型，只要準備好 OpenAI API key 即可。
+
+### 選項 B：Ollama（本機）
 
 ```bash
 # 安裝 Ollama
@@ -35,10 +54,14 @@ ollama list
 ./scripts/setup-ollama.sh
 ```
 
-### 為什麼選這些模型？
+<details>
+<summary>為什麼選這些 Ollama 模型？</summary>
 
-- **qwen3:8b**：中英文夾雜理解能力遠勝 llama3.1。記憶擷取只需文字簡化和事實提取，不需要推理鏈。8B 參數在 Apple Silicon 上推理速度合理。
-- **nomic-embed-text**：768 維度（vs OpenAI 的 1536），本機效率好。開源，品質接近 OpenAI text-embedding-3-small。
+- **qwen3:8b**：中英文夾雜理解能力佳。記憶擷取只需文字簡化和事實提取，不需要推理鏈。8B 參數在 Apple Silicon 上推理速度合理。
+- **nomic-embed-text**：768 維度向量，開源，品質接近 OpenAI text-embedding-3-small。
+
+**已知限制**：處理中文結構化格式（如 `[開發教訓]` 標籤）不穩定。詳見疑難排解。
+</details>
 
 ## Phase 2: 部署 Docker 堆疊
 
@@ -52,6 +75,15 @@ cd mem0/openmemory
 
 ### 2b. 建立環境設定檔
 
+**OpenAI 路線**：
+```bash
+cat > api/.env << 'EOF'
+USER=your-username
+OPENAI_API_KEY=sk-proj-your-key-here
+EOF
+```
+
+**Ollama 路線**：
 ```bash
 cat > api/.env << 'EOF'
 USER=your-username
@@ -66,7 +98,7 @@ EOF
 
 1. 所有服務加上 `restart: always`（重啟自恢復）
 2. API 環境寫死 `USER=your-username`（不要用 `- USER`）
-3. 加上 `OLLAMA_HOST=http://host.docker.internal:11434`（Docker 連主機）
+3. **僅 Ollama**：加上 `OLLAMA_HOST=http://host.docker.internal:11434`（Docker 連主機）
 4. UI 映射到 port `3080`（避免與開發伺服器的 3000 衝突）
 
 ### 2d. Build 和啟動
@@ -80,9 +112,54 @@ docker compose up -d
 
 **Makefile 快速指令**：`make up` / `make down` / `make logs` / `make shell`
 
-### 2e. 設定 Ollama 為 LLM + Embedder
+### 2e. 設定 LLM + Embedder
 
-> **⚠️ 這是最關鍵的步驟。** 必須在寫入任何記憶之前完成。
+> **這是最關鍵的步驟。** 必須在寫入任何記憶之前完成。
+
+#### 選項 A：OpenAI（推薦）
+
+```bash
+# 設定 LLM
+curl -s -X PUT http://localhost:8765/api/v1/config/mem0/llm \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "provider": "openai",
+    "config": {
+      "model": "gpt-4.1-nano",
+      "temperature": 0.1,
+      "max_tokens": 4096,
+      "api_key": "env:OPENAI_API_KEY"
+    }
+  }'
+
+# 設定 Embedder
+curl -s -X PUT http://localhost:8765/api/v1/config/mem0/embedder \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "provider": "openai",
+    "config": {
+      "model": "text-embedding-3-small",
+      "api_key": "env:OPENAI_API_KEY"
+    }
+  }'
+
+# 設定 Vector Store 維度為 1536（對應 text-embedding-3-small）
+curl -s -X PUT http://localhost:8765/api/v1/config/mem0/vector_store \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "provider": "qdrant",
+    "config": {
+      "collection_name": "openmemory",
+      "host": "mem0_store",
+      "port": 6333,
+      "embedding_model_dims": 1536
+    }
+  }'
+```
+
+> **重要**：`max_tokens` 至少要 2000（建議 4096）。數值太低會導致 mem0 在比對大量現有記憶時靜默失敗。詳見[疑難排解](troubleshooting.zh-TW.md#6-silent-null-returns-with-openai-max_tokens-too-low)。
+
+#### 選項 B：Ollama（本機）
 
 ```bash
 # 設定 LLM
@@ -109,7 +186,7 @@ curl -s -X PUT http://localhost:8765/api/v1/config/mem0/embedder \
     }
   }'
 
-# ⚠️ 設定 Vector Store 維度為 768
+# 設定 Vector Store 維度為 768（對應 nomic-embed-text）
 curl -s -X PUT http://localhost:8765/api/v1/config/mem0/vector_store \
   -H 'Content-Type: application/json' \
   -d '{
@@ -130,10 +207,9 @@ curl -s -X PUT http://localhost:8765/api/v1/config/mem0/vector_store \
 
 ### 2f. 清除錯誤維度的 Collection
 
-API 啟動時會用預設 OpenAI config 初始化 memory client，導致 Qdrant collection 被建成 1536 維度。必須刪除重建：
+API 啟動時可能會用錯誤的維度建立 Qdrant collection。刪除後讓它用正確的配置重建：
 
 ```bash
-# 刪除錯誤維度的 collections
 curl -X DELETE http://localhost:6333/collections/openmemory
 curl -X DELETE http://localhost:6333/collections/mem0migrations
 
@@ -148,16 +224,15 @@ sleep 8
 # 寫入測試記憶
 curl -s -X POST http://localhost:8765/api/v1/memories/ \
   -H 'Content-Type: application/json' \
-  -d '{"text": "Test memory: system deployed successfully.", "user_id": "your-username", "agent_id": "test"}'
+  -d '{"text": "Test memory: system deployed successfully.", "user_id": "your-username"}'
 
-# 確認 Qdrant 維度
+# 確認 Qdrant 維度（OpenAI 為 1536，Ollama 為 768）
 curl -s http://localhost:6333/collections/openmemory | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 size = d['result']['config']['params']['vectors']['size']
 print(f'Vector size: {size}')
-assert size == 768, f'ERROR: expected 768, got {size}'
-print('維度正確！')
+print('維度正確！' if size in (768, 1536) else 'ERROR: unexpected size')
 "
 ```
 

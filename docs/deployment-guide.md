@@ -1,17 +1,36 @@
 # Deployment Guide
 
-> Step-by-step instructions to deploy OpenMemory (mem0) on macOS with Apple Silicon,
-> using Ollama for local LLM inference and Docker for the service stack.
+> Step-by-step instructions to deploy OpenMemory (mem0) on macOS with Apple Silicon.
+> Two LLM provider options: **OpenAI API** (recommended) or **local Ollama**.
+
+## Choose Your LLM Provider
+
+| | OpenAI API (Recommended) | Ollama (Local) |
+|---|---|---|
+| **Cost** | ~$0.17/month | Free |
+| **Write speed** | ~5-7s | ~25s |
+| **Chinese accuracy** | Excellent | Inconsistent (~50% for mixed format) |
+| **RAM usage** | 0 (cloud) | ~7GB |
+| **Privacy** | Data sent to OpenAI | Fully local |
+| **Auto-categorization** | Yes | No (hardcoded OpenAI dependency) |
+
+> **Why we recommend OpenAI**: Ollama's local models (tested: qwen3:8b) struggle with Chinese+English mixed text fact extraction, producing ~50% failure rates on structured formats like `[開發教訓]`. OpenAI gpt-4.1-nano is faster, more reliable, and costs under $0.20/month. See [Issue #1](https://github.com/wuchouk/AI-memory-setup/issues/1) for details.
 
 ## Prerequisites
 
 - macOS with Apple Silicon (M1/M2/M3/M4)
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed
 - [Homebrew](https://brew.sh) installed
-- At least 16GB RAM (24GB+ recommended)
-- ~10GB free disk space (for models + Docker images)
+- **OpenAI path**: An OpenAI API key
+- **Ollama path**: At least 16GB RAM (24GB+ recommended), ~10GB free disk space
 
-## Phase 1: Install Ollama + Models
+## Phase 1: LLM Setup
+
+### Option A: OpenAI API (Recommended)
+
+No local model installation needed. Just have your OpenAI API key ready.
+
+### Option B: Ollama (Local)
 
 ```bash
 # Install Ollama
@@ -35,10 +54,14 @@ Or use the helper script:
 ./scripts/setup-ollama.sh
 ```
 
-### Why these models?
+<details>
+<summary>Why these Ollama models?</summary>
 
-- **qwen3:8b**: Excellent multilingual understanding (Chinese + English mixed text). Fact extraction only needs text simplification, not complex reasoning chains. 8B parameters run well on Apple Silicon.
-- **nomic-embed-text**: 768-dimension vectors (vs OpenAI's 1536), efficient for local use. Open-source, quality close to OpenAI text-embedding-3-small.
+- **qwen3:8b**: Multilingual understanding (Chinese + English). Fact extraction only needs text simplification, not complex reasoning. 8B parameters run on Apple Silicon.
+- **nomic-embed-text**: 768-dimension vectors, open-source, quality close to OpenAI text-embedding-3-small.
+
+**Known limitations**: Unstable with Chinese structured formats (e.g., `[開發教訓]` tags). See troubleshooting for details.
+</details>
 
 ## Phase 2: Deploy the Docker Stack
 
@@ -52,6 +75,15 @@ cd mem0/openmemory
 
 ### 2b. Create the environment file
 
+**OpenAI path**:
+```bash
+cat > api/.env << 'EOF'
+USER=your-username
+OPENAI_API_KEY=sk-proj-your-key-here
+EOF
+```
+
+**Ollama path**:
 ```bash
 cat > api/.env << 'EOF'
 USER=your-username
@@ -66,7 +98,7 @@ Apply these key modifications (or use [config/docker-compose.yml](../config/dock
 
 1. Add `restart: always` to all services (auto-recovery on reboot)
 2. Hardcode `USER=your-username` in the API environment (don't use `- USER`)
-3. Add `OLLAMA_HOST=http://host.docker.internal:11434` for Docker→host communication
+3. **Ollama only**: Add `OLLAMA_HOST=http://host.docker.internal:11434` for Docker→host communication
 4. Map UI to port `3080` (avoid conflict with dev servers on 3000)
 
 ### 2d. Build and Start
@@ -80,9 +112,54 @@ docker compose up -d
 
 **Useful Makefile commands**: `make up` / `make down` / `make logs` / `make shell`
 
-### 2e. Configure Ollama as LLM + Embedder
+### 2e. Configure LLM + Embedder
 
 > **This is the most critical step.** Must be done before writing any memories.
+
+#### Option A: OpenAI (Recommended)
+
+```bash
+# Set LLM provider
+curl -s -X PUT http://localhost:8765/api/v1/config/mem0/llm \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "provider": "openai",
+    "config": {
+      "model": "gpt-4.1-nano",
+      "temperature": 0.1,
+      "max_tokens": 4096,
+      "api_key": "env:OPENAI_API_KEY"
+    }
+  }'
+
+# Set embedding provider
+curl -s -X PUT http://localhost:8765/api/v1/config/mem0/embedder \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "provider": "openai",
+    "config": {
+      "model": "text-embedding-3-small",
+      "api_key": "env:OPENAI_API_KEY"
+    }
+  }'
+
+# Set vector store dimensions to 1536 (matches text-embedding-3-small)
+curl -s -X PUT http://localhost:8765/api/v1/config/mem0/vector_store \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "provider": "qdrant",
+    "config": {
+      "collection_name": "openmemory",
+      "host": "mem0_store",
+      "port": 6333,
+      "embedding_model_dims": 1536
+    }
+  }'
+```
+
+> **Important**: `max_tokens` must be at least 2000 (4096 recommended). Lower values cause silent failures when mem0 compares against many existing memories. See [troubleshooting](troubleshooting.md#6-silent-null-returns-with-openai-max_tokens-too-low).
+
+#### Option B: Ollama (Local)
 
 ```bash
 # Set LLM provider
@@ -109,7 +186,7 @@ curl -s -X PUT http://localhost:8765/api/v1/config/mem0/embedder \
     }
   }'
 
-# Set vector store dimensions to 768
+# Set vector store dimensions to 768 (matches nomic-embed-text)
 curl -s -X PUT http://localhost:8765/api/v1/config/mem0/vector_store \
   -H 'Content-Type: application/json' \
   -d '{
@@ -130,10 +207,9 @@ Or use the helper script:
 
 ### 2f. Clear Incorrectly-Dimensioned Collections
 
-The API creates a Qdrant collection with OpenAI's default 1536 dimensions on first start. You must delete and recreate it with the correct 768 dimensions:
+The API may create a Qdrant collection with the wrong dimensions on first start. Delete and let it recreate with the correct config:
 
 ```bash
-# Delete the wrong-dimension collections
 curl -X DELETE http://localhost:6333/collections/openmemory
 curl -X DELETE http://localhost:6333/collections/mem0migrations
 
@@ -148,16 +224,15 @@ sleep 8
 # Write a test memory
 curl -s -X POST http://localhost:8765/api/v1/memories/ \
   -H 'Content-Type: application/json' \
-  -d '{"text": "Test memory: system deployed successfully.", "user_id": "your-username", "agent_id": "test"}'
+  -d '{"text": "Test memory: system deployed successfully.", "user_id": "your-username"}'
 
-# Verify Qdrant dimensions
+# Verify Qdrant dimensions (1536 for OpenAI, 768 for Ollama)
 curl -s http://localhost:6333/collections/openmemory | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 size = d['result']['config']['params']['vectors']['size']
 print(f'Vector size: {size}')
-assert size == 768, f'ERROR: expected 768, got {size}'
-print('Correct dimensions!')
+print('Correct!' if size in (768, 1536) else 'ERROR: unexpected size')
 "
 ```
 
