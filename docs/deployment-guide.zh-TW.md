@@ -12,6 +12,7 @@
 | **中文準確度** | 優秀 | 不穩定（混合格式約 50% 失敗） |
 | **RAM 用量** | 0（雲端） | ~7GB |
 | **隱私** | 資料傳送至 OpenAI | 完全本機 |
+| **事實擷取品質** | 良好（輕微過度拆分） | 差——約 43% 碎片率，需[自訂 prompt 修復](troubleshooting.zh-TW.md#7-事實擷取過度拆分ollama--小型模型) |
 | **自動分類** | 有 | 無（硬編碼 OpenAI 依賴） |
 
 > **為什麼推薦 OpenAI**：Ollama 的本機模型（測試過 qwen3:8b）在處理中英文夾雜的事實擷取時表現不穩，結構化格式如 `[開發教訓]` 的失敗率約 50%。OpenAI gpt-4.1-nano 更快、更可靠，每月費用不到 $0.20。詳見 [Issue #1](https://github.com/wuchouk/AI-memory-setup/issues/1)。

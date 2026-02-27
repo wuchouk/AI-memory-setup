@@ -121,6 +121,31 @@ After updating, restart the API container:
 docker compose restart openmemory-mcp
 ```
 
+## 7. Fact Extraction Over-Splitting (Ollama / Small Models)
+
+**Symptom**: A single `add_memories` call produces 5-8 fragmented memories instead of 1-2 coherent ones. Examples of useless fragments:
+- `"Source: OpenMemory project 2026-02-27"` — metadata extracted as a standalone "fact"
+- `"Only check process health"` — orphaned fragment with no context
+- `"Works in Chat, Cowork, and Code modes"` — incomplete; works for *what*?
+
+**Cause**: mem0's fact extraction pipeline prompts the LLM to break input into "atomic facts." Smaller models like qwen3:8b over-split aggressively — they extract metadata as separate facts, lose surrounding context, and produce fragments that are meaningless without the original text. This also affects larger models (e.g., gpt-4.1-nano), but to a much lesser degree.
+
+**Impact**: Over time, your memory store fills with context-less fragments that pollute search results and waste storage. In our testing with qwen3:8b, **29 out of 67 memories (~43%) were fragments** that required manual cleanup.
+
+**Fix**: Set a `custom_fact_extraction_prompt` to constrain extraction behavior. This works with any LLM provider:
+
+```bash
+curl -s -X PUT http://localhost:8765/api/v1/config/openmemory \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "custom_instructions": "Extract facts conservatively and return as json. Rules:\n1. Maximum 3 facts per input. Prefer fewer, more complete facts over many fragments.\n2. Each fact MUST be self-contained and understandable without the original text. Include WHO, WHAT, and WHY/CONTEXT.\n3. Do NOT extract metadata (dates, sources) as separate facts — embed them within the relevant fact.\n4. Do NOT extract vague or generic statements. Only extract specific, actionable information.\n5. Preserve technical details (commands, paths, config values) within their context.\n6. If the input is already a single coherent fact, return it as-is without splitting."
+  }'
+```
+
+> **Important**: The custom instructions **must** contain the word "json" — OpenAI's `response_format: json_object` requires it in the messages. Without it, `add_memories` fails with HTTP 400.
+
+**Alternative approach**: Write one fact per `add_memories` call instead of batching multiple facts into a single text block. This gives the LLM nothing to over-split.
+
 ## FAQ
 
 ### Q: Can I use a different LLM instead of qwen3:8b?

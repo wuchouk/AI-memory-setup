@@ -121,6 +121,31 @@ curl -s -X PUT http://localhost:8765/api/v1/config/mem0/llm \
 docker compose restart openmemory-mcp
 ```
 
+## 7. 事實擷取過度拆分（Ollama / 小型模型）
+
+**症狀**：一次 `add_memories` 呼叫產生 5-8 筆碎片記憶，而不是 1-2 筆完整的。無用碎片範例：
+- `"Source: OpenMemory project 2026-02-27"` — metadata 被當成獨立「事實」提取
+- `"只檢查本身進程健康"` — 孤立片段，缺乏上下文
+- `"Works in Chat, Cowork, and Code modes"` — 不完整；什麼東西 works？
+
+**原因**：mem0 的事實擷取流程會要求 LLM 將輸入拆解為「原子事實」。較小的模型如 qwen3:8b 會過度拆分——把 metadata 當事實提取、丟失上下文、產生脫離原文就無法理解的碎片。較大的模型（如 gpt-4.1-nano）也有此問題，但程度輕微得多。
+
+**影響**：隨著時間推移，記憶庫會充滿缺乏上下文的碎片，污染搜尋結果、浪費儲存空間。我們使用 qwen3:8b 的實測中，**67 筆記憶有 29 筆（約 43%）是碎片**，需要手動清理。
+
+**解法**：設定 `custom_fact_extraction_prompt` 來約束擷取行為。適用於任何 LLM 供應商：
+
+```bash
+curl -s -X PUT http://localhost:8765/api/v1/config/openmemory \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "custom_instructions": "Extract facts conservatively and return as json. Rules:\n1. Maximum 3 facts per input. Prefer fewer, more complete facts over many fragments.\n2. Each fact MUST be self-contained and understandable without the original text. Include WHO, WHAT, and WHY/CONTEXT.\n3. Do NOT extract metadata (dates, sources) as separate facts — embed them within the relevant fact.\n4. Do NOT extract vague or generic statements. Only extract specific, actionable information.\n5. Preserve technical details (commands, paths, config values) within their context.\n6. If the input is already a single coherent fact, return it as-is without splitting."
+  }'
+```
+
+> **重要**：custom instructions **必須**包含 "json" 這個詞——OpenAI 的 `response_format: json_object` 要求 messages 中出現它。少了 "json"，`add_memories` 會回傳 HTTP 400。
+
+**替代方案**：每次 `add_memories` 只寫入一個事實，不要把多個事實合併成一段文字。這樣 LLM 就沒東西可以過度拆分。
+
 ## 常見問答
 
 ### Q: 可以用其他 LLM 代替 qwen3:8b 嗎？

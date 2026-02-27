@@ -12,6 +12,7 @@
 | **Chinese accuracy** | Excellent | Inconsistent (~50% for mixed format) |
 | **RAM usage** | 0 (cloud) | ~7GB |
 | **Privacy** | Data sent to OpenAI | Fully local |
+| **Fact extraction quality** | Good (minor over-splitting) | Poor — ~43% fragment rate, needs [custom prompt fix](troubleshooting.md#7-fact-extraction-over-splitting-ollama--small-models) |
 | **Auto-categorization** | Yes | No (hardcoded OpenAI dependency) |
 
 > **Why we recommend OpenAI**: Ollama's local models (tested: qwen3:8b) struggle with Chinese+English mixed text fact extraction, producing ~50% failure rates on structured formats like `[開發教訓]`. OpenAI gpt-4.1-nano is faster, more reliable, and costs under $0.20/month. See [Issue #1](https://github.com/wuchouk/AI-memory-setup/issues/1) for details.
