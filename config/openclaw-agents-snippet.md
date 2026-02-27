@@ -12,6 +12,7 @@ OpenMemory is a shared fact database across your AI tools, running locally via D
 ### API Endpoints (REST, not MCP)
 - **List memories**: `curl -s "http://localhost:8765/api/v1/memories/?user_id=your-username"`
 - **Add memory**: `curl -s -X POST http://localhost:8765/api/v1/memories/ -H 'Content-Type: application/json' -d '{"text": "content to remember", "user_id": "your-username", "agent_id": "your-agent-name"}'`
+- **Delete memory**: `curl -s -X DELETE "http://localhost:8765/api/v1/memories/{memory_id}/"`
 - **Dashboard**: http://localhost:3080
 
 ### Write Rules
