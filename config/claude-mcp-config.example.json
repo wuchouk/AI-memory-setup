@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "openmemory": {
+      "type": "sse",
+      "url": "http://localhost:8765/mcp/claude-code/sse/your-username"
+    }
+  }
+}

@@ -1,0 +1,54 @@
+# OpenMemory Docker Compose - Customized for local Ollama deployment
+# Based on: https://github.com/mem0ai/mem0/tree/main/openmemory
+#
+# Key modifications from upstream:
+# 1. restart: always        — auto-recovery on reboot / crash
+# 2. USER=your-username     — hardcoded (not from host $USER)
+# 3. OLLAMA_HOST            — uses host.docker.internal for Docker-to-host comms
+# 4. UI port 3080           — avoids conflict with common dev servers on 3000
+
+services:
+  # --- Vector Database ---
+  mem0_store:
+    image: qdrant/qdrant
+    restart: always                  # [CUSTOM] auto-restart on failure/reboot
+    ports:
+      - "6333:6333"
+    volumes:
+      - mem0_storage:/mem0/storage
+
+  # --- OpenMemory API (FastAPI + mem0 engine) ---
+  openmemory-mcp:
+    image: mem0/openmemory-mcp
+    build: api/
+    restart: always                  # [CUSTOM] auto-restart
+    environment:
+      - USER=your-username           # [CUSTOM] hardcoded — do NOT use '- USER' (inherits host $USER)
+      - API_KEY
+      - OLLAMA_HOST=http://host.docker.internal:11434  # [CUSTOM] Docker → host Ollama
+    env_file:
+      - api/.env
+    depends_on:
+      - mem0_store
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./api:/usr/src/openmemory
+    command: >
+      sh -c "uvicorn main:app --host 0.0.0.0 --port 8765 --reload --workers 4"
+
+  # --- Dashboard UI (Next.js) ---
+  openmemory-ui:
+    build:
+      context: ui/
+      dockerfile: Dockerfile
+    image: mem0/openmemory-ui:latest
+    restart: always                  # [CUSTOM] auto-restart
+    ports:
+      - "3080:3000"                  # [CUSTOM] map to 3080 to avoid port conflicts
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8765}
+      - NEXT_PUBLIC_USER_ID=${NEXT_PUBLIC_USER_ID:-your-username}
+
+volumes:
+  mem0_storage:
